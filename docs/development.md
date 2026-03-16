@@ -372,3 +372,25 @@ All 14 pass locally (including model-dependent tests).
 ### Validation
 
 All 14 tests pass (0 warnings related to thread exceptions).
+
+---
+
+## Robustness Improvements
+
+**Goal:** Improve production reliability — threshold persistence across restarts, graceful worker shutdown
+
+### Calibrated Threshold Persistence
+
+**Issue:** `POST /calibrate` updated `_predictor.threshold` in memory only. Server restart (or container restart) reverted to the checkpoint default or env `THRESHOLD`, discarding the calibration result.
+
+**Fix:** Calibration now saves to `calibration.json` on success. On startup, the lifespan handler loads it with priority: env `THRESHOLD` > `calibration.json` > checkpoint default. File added to `.gitignore` (runtime state, not source).
+
+### Graceful Shutdown with threading.Event
+
+**Issue:** `FrameProcessor._inference_worker` used `time.sleep(self._backoff)` for exponential backoff. At max backoff (30s), calling `close()` would block for up to 30 seconds waiting for the sleep to finish before the thread could respond to the stop signal.
+
+**Fix:** Replaced `time.sleep()` with `self._stop_event.wait(timeout=self._backoff)`. `close()` sets the event, waking the worker immediately regardless of remaining backoff duration.
+
+### Validation
+
+All 14 tests pass.
