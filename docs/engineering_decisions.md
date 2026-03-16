@@ -85,6 +85,24 @@ Pixel AUROC is more resilient (0.92–0.96) because spatial localisation depends
 
 This aligns with the published SOTA: models scoring >90% AU-PRO on AD 1 typically drop below 60% on AD 2. DefectVision's results are consistent with the literature.
 
+### Attempted mitigation: lighting augmentation
+
+To close the AD 2 gap, lighting and geometry augmentations were applied during training on the `vial` category.
+
+| Config | Lighting | Geometry | Image AUROC | Pixel AUROC |
+|--------|----------|----------|------------|-------------|
+| baseline | no | no | **0.9245** | **0.9396** |
+| lighting | yes | no | 0.8679 | 0.9235 |
+| geometry | no | yes | 0.7495 | 0.9363 |
+
+**Result: augmentation consistently degrades performance.**
+
+**Why**: PatchCore uses a frozen pretrained backbone (WideResNet50) — the feature extractor is never trained. Augmented training images produce feature vectors representing "normal images under varied conditions", which bloats the memory bank with a wider distribution of normal features. This compresses the distance gap between normal and anomalous patches at test time, making anomalies harder to detect.
+
+This is a fundamental property of memory-bank methods: augmentation that helps discriminative models (by improving generalisation) actively hurts PatchCore by widening the normal distribution in feature space.
+
+**Conclusion**: For PatchCore on AD 2, the correct mitigation is not augmentation but **collecting training images that cover the actual lighting conditions seen at test time**. A model trained under the same multi-lighting setup as the test set would eliminate the distribution shift entirely.
+
 ---
 
 ## 6. PyTorch vs OpenVINO inference latency

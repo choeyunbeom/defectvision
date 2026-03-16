@@ -341,6 +341,21 @@ All 14 pass locally (including model-dependent tests).
   6. PyTorch vs OpenVINO latency benchmark
   7. Benchmark vs real-world webcam (to be completed after webcam validation)
 
+### Augmentation Experiment (MVTec AD 2)
+
+Created `src/train/augmentation_experiment.py` — trains PatchCore with 4 configs and compares Image AUROC:
+- baseline / lighting (ColorJitter + RandomAutocontrast) / geometry (HFlip + Rotation) / combined
+
+Results on `vial` category:
+
+| Config | Image AUROC | Pixel AUROC |
+|--------|------------|-------------|
+| baseline | **0.9245** | **0.9396** |
+| lighting | 0.8679 | 0.9235 |
+| geometry | 0.7495 | 0.9363 |
+
+Augmentation consistently degrades PatchCore performance. Root cause: frozen backbone means augmented images widen the memory bank's normal distribution, compressing the anomaly distance gap. Documented in `engineering_decisions.md` section 5.
+
 ### Remaining
 
 - **Webcam real-world demo**: Film normal object → low score, introduce defect → high score + heatmap. Record as GIF → `assets/demo.gif`.
