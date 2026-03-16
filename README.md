@@ -2,9 +2,9 @@
 
 > Real-time manufacturing defect detection using unsupervised anomaly detection.
 
-![demo](assets/demo.gif)
-
-*Normal bottle → low score. Defective bottle → red heatmap + ANOMALY alert.*
+<!-- TODO: record webcam demo and add assets/demo.gif -->
+<!-- ![demo](assets/demo.gif) -->
+<!-- *Normal bottle → low score. Defective bottle → red heatmap + ANOMALY alert.* -->
 
 ---
 
@@ -26,7 +26,7 @@ Built on [PatchCore](https://arxiv.org/abs/2106.08265) (CVPR 2022) via [Anomalib
 |----------|------------|-------------|--------|
 | bottle   | **1.0000** | 0.9815      | > 0.98 / > 0.97 ✓ |
 | screw    | **0.9820** | 0.9894      | ✓ |
-| capsule  | **0.9781** | 0.9877      | ✓ |
+| capsule  | 0.9781     | 0.9877      | Image AUROC slightly below 0.98 |
 
 ### MVTec AD 2 — harder benchmark (2025)
 
@@ -77,7 +77,7 @@ Webcam / RTSP
 pip install uv
 uv venv --python 3.11
 source .venv/bin/activate
-uv pip install -e ".[dev]"
+uv sync
 
 # 2. Train a model (downloads MVTec AD automatically)
 python src/train/train.py --category bottle
@@ -112,9 +112,14 @@ curl http://localhost:8000/health
 
 curl -X POST http://localhost:8000/predict \
   -F "file=@your_image.jpg" | python -m json.tool
+
+# Calibrate threshold with normal images (optional)
+curl -X POST http://localhost:8000/calibrate \
+  -F "files=@normal1.jpg" -F "files=@normal2.jpg" \
+  -F "files=@normal3.jpg" | python -m json.tool
 ```
 
-Response:
+Response (`/predict`):
 ```json
 {
   "anomaly_score": 0.79,
@@ -124,6 +129,16 @@ Response:
   "overlay_b64": "<base64 PNG>",
   "model_category": "bottle",
   "runtime": "pytorch"
+}
+```
+
+Response (`/calibrate`):
+```json
+{
+  "new_threshold": 0.62,
+  "mean_score": 0.35,
+  "std_score": 0.09,
+  "n_images": 3
 }
 ```
 

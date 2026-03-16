@@ -289,14 +289,27 @@ Three jobs:
 
 ### Tests
 
-11 tests across two files:
+14 tests across two files:
 
 | File | Tests |
 |------|-------|
-| `test_inference.py` | health endpoint, predict schema, invalid file → 422, mock predictor, model load + good<bad score check (skipped in CI) |
+| `test_inference.py` | health endpoint, predict schema, invalid file → 422, mock predictor, `/calibrate` threshold update, `/calibrate` empty → 422, `/calibrate` k parameter, model load + good<bad score check (skipped in CI) |
 | `test_stream.py` | overlay shape, cache reuse on non-inference frames, no result before first inference, API error fallback, anomaly label |
 
-All 11 pass locally (including model-dependent tests).
+All 14 pass locally (including model-dependent tests).
+
+### Async stream & `/calibrate` endpoint
+
+**`src/stream/processor.py`** rewritten with background inference thread:
+- `_infer_queue` + `_result_queue` (both `maxsize=1`) decouple camera capture from API latency
+- `process()` is always non-blocking: enqueues with `put_nowait` (drops frame if worker busy), polls result with `get_nowait`
+- Worker thread `_inference_worker` consumes frames, puts results back; stale results replaced with latest
+
+**`POST /calibrate`** added to `src/inference/main.py`:
+- Accepts N normal images, runs `predict()` on each, computes `threshold = mean + k * std`
+- `k` parameter (default 3.0) controls sensitivity — higher k = fewer false positives
+- Sets `_predictor.threshold` in-place; immediately affects subsequent `/predict` calls
+- Replaces manual `.env` THRESHOLD editing for on-site recalibration
 
 ### Troubleshooting
 
@@ -332,3 +345,30 @@ All 11 pass locally (including model-dependent tests).
 
 - **Webcam real-world demo**: Film normal object → low score, introduce defect → high score + heatmap. Record as GIF → `assets/demo.gif`.
 - **Blog post** for choeyunbeom.github.io
+
+---
+
+## Code Review & Bug Fixes
+
+**Goal:** Fix bugs and improve robustness across inference API, stream processor, and dashboard
+
+### Critical Bug Fix
+
+**`/calibrate` endpoint used normalised score instead of raw score** — `main.py` line 148 appended `result["anomaly_score"]` (normalised to [0,1]) but `is_anomaly` is computed against the raw score threshold. Calibration threshold was being computed in normalised space while detection used raw space, making the calibrated threshold ineffective. Fixed by using `result["raw_score"]`.
+
+### Improvements
+
+1. **Specific exception handling** — replaced 5 instances of bare `except Exception` with targeted types:
+   - `model.py`: `except (AttributeError, TypeError, ValueError)` for threshold extraction
+   - `processor.py`: `except (httpx.HTTPError, OSError)` for API calls, `except (ValueError, cv2.error)` for overlay decoding
+   - `app.py`: `except (httpx.HTTPError, OSError)` for predict and health calls
+
+2. **Exponential backoff on API errors** — `FrameProcessor` now backs off (1s → 2s → 4s → ... → 30s max) when the inference API is unreachable. Resets to 0 on success. Prevents log spam when API is down.
+
+3. **File upload size limit** — `POST /predict` now rejects files > 10 MB with HTTP 413, preventing OOM from oversized uploads.
+
+4. **Test mock updated** — added `raw_score` field to mock predictor return value; changed error test to raise `httpx.ConnectError` instead of generic `Exception` to match the narrowed catch clause. Thread exception warning eliminated.
+
+### Validation
+
+All 14 tests pass (0 warnings related to thread exceptions).
