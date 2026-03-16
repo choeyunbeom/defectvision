@@ -10,7 +10,6 @@ Usage:
 
 import threading
 import time
-from typing import Union
 
 import cv2
 import numpy as np
@@ -26,7 +25,7 @@ class Camera:
 
     def __init__(
         self,
-        source: Union[int, str] = 0,
+        source: int | str = 0,
         target_fps: int = 30,
         width: int = 640,
         height: int = 480,

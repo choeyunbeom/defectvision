@@ -10,14 +10,11 @@ time to work around torch.export incompatibilities with torchvision v2).
 """
 
 import base64
-import io
-from pathlib import Path
 
 import cv2
 import numpy as np
 import torch
 from PIL import Image
-
 
 # ImageNet normalisation constants (same as Anomalib's default transforms)
 _MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
