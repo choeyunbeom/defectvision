@@ -49,21 +49,23 @@ Built on [PatchCore](https://arxiv.org/abs/2106.08265) (CVPR 2022) via [Anomalib
 
 ## Architecture
 
-```
-Webcam / RTSP
-      │
-      ▼
-  Camera (OpenCV threaded capture)
-      │  frame (BGR)
-      ▼
-  FrameProcessor  ──── POST /predict ────►  FastAPI Inference API
-      │                                          │
-      │  overlay (base64 PNG)                    │  PatchCorePredictor
-      ▼                                          │  (PyTorch or OpenVINO)
-  Streamlit Dashboard                            │
-  • Live feed + heatmap overlay             anomaly score
-  • Score time-series chart                 heatmap (JET colormap)
-  • NORMAL / ANOMALY status                 overlay image
+```mermaid
+flowchart LR
+    A["📷 Webcam / RTSP"] -->|frame BGR| B["Camera\n(OpenCV threaded)"]
+    B -->|frame| C["FrameProcessor"]
+    C -->|POST /predict| D["FastAPI\nInference API"]
+    D -->|anomaly score\nheatmap\noverlay| C
+    C -->|overlay base64 PNG| E["Streamlit Dashboard"]
+
+    subgraph Inference
+        D --> F["PatchCorePredictor\n(PyTorch or OpenVINO)"]
+    end
+
+    subgraph Dashboard
+        E --> G["Live feed + heatmap"]
+        E --> H["Score time-series"]
+        E --> I["NORMAL / ANOMALY"]
+    end
 ```
 
 ---
