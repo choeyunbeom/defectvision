@@ -47,7 +47,7 @@ def _call_predict(frame_bgr: np.ndarray) -> dict | None:
         )
         resp.raise_for_status()
         return resp.json()
-    except Exception as exc:
+    except (httpx.HTTPError, OSError) as exc:
         st.toast(f"API error: {exc}", icon="⚠️")
         return None
 
@@ -57,7 +57,7 @@ def _check_health() -> dict | None:
         resp = httpx.get(f"{API_URL}/health", timeout=2.0)
         resp.raise_for_status()
         return resp.json()
-    except Exception:
+    except (httpx.HTTPError, OSError):
         return None
 
 

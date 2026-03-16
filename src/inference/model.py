@@ -90,7 +90,7 @@ class PatchCorePredictor:
         # Extract threshold stored in checkpoint if available
         try:
             self._threshold = float(self._model.image_threshold.value)
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
 
     def _load_openvino(self, xml_path: str) -> None:

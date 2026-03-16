@@ -3,6 +3,9 @@
 FrameProcessor calls the FastAPI inference server for each frame and overlays
 the anomaly heatmap on the live video feed.
 
+Inference runs in a background thread so that API latency never blocks
+the camera capture loop — frames are always displayed at full frame rate.
+
 Usage:
     processor = FrameProcessor(api_url="http://localhost:8000", inference_every=5)
     result = processor.process(frame_bgr)
@@ -12,6 +15,8 @@ Usage:
 """
 
 import base64
+import queue
+import threading
 import time
 from dataclasses import dataclass
 
@@ -33,9 +38,9 @@ class FrameResult:
 class FrameProcessor:
     """Sends frames to the inference API and overlays results.
 
-    To avoid saturating the API, inference is only called every
-    ``inference_every`` frames.  Between calls the most recent overlay
-    is cached and reused.
+    Inference runs in a dedicated background thread via a queue so that
+    API latency never blocks the camera capture loop.  Between inference
+    calls the most recent overlay is cached and reused.
     """
 
     def __init__(
@@ -50,34 +55,60 @@ class FrameProcessor:
         self._frame_count = 0
         self._last_result: FrameResult | None = None
 
+        # Background inference thread
+        self._infer_queue: queue.Queue = queue.Queue(maxsize=1)
+        self._result_queue: queue.Queue = queue.Queue(maxsize=1)
+        self._running = True
+        self._backoff: float = 0.0  # exponential backoff on API errors
+        self._thread = threading.Thread(target=self._inference_worker, daemon=True)
+        self._thread.start()
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def process(self, frame_bgr: np.ndarray) -> FrameResult:
-        """Process one frame.  Runs inference every ``inference_every`` frames."""
+        """Process one frame — non-blocking.
+
+        Enqueues a frame for inference every ``inference_every`` frames.
+        Always returns immediately with the latest available result.
+        """
         self._frame_count += 1
 
+        # Enqueue frame for inference (drop if worker is still busy)
         if self._frame_count % self.inference_every == 0:
-            result = self._run_inference(frame_bgr)
-            self._last_result = result
-            return result
+            try:
+                self._infer_queue.put_nowait(frame_bgr.copy())
+            except queue.Full:
+                pass  # worker busy — skip this frame, don't block
 
-        # Reuse cached overlay on non-inference frames
+        # Pick up any completed inference result
+        try:
+            self._last_result = self._result_queue.get_nowait()
+        except queue.Empty:
+            pass
+
         if self._last_result is not None:
-            cached = self._last_result
+            h, w = frame_bgr.shape[:2]
+            overlay = cv2.resize(self._last_result.overlay_frame, (w, h))
             return FrameResult(
-                overlay_frame=self._blend_cached_overlay(frame_bgr, cached),
-                anomaly_score=cached.anomaly_score,
-                is_anomaly=cached.is_anomaly,
-                threshold=cached.threshold,
-                latency_ms=cached.latency_ms,
+                overlay_frame=overlay,
+                anomaly_score=self._last_result.anomaly_score,
+                is_anomaly=self._last_result.is_anomaly,
+                threshold=self._last_result.threshold,
+                latency_ms=self._last_result.latency_ms,
                 has_prediction=True,
             )
 
         return FrameResult(overlay_frame=frame_bgr.copy())
 
     def close(self) -> None:
+        self._running = False
+        try:
+            self._infer_queue.put_nowait(None)  # sentinel to unblock worker
+        except queue.Full:
+            pass
+        self._thread.join(timeout=2.0)
         self._client.close()
 
     def __enter__(self) -> "FrameProcessor":
@@ -87,7 +118,29 @@ class FrameProcessor:
         self.close()
 
     # ------------------------------------------------------------------
-    # Internal
+    # Background worker
+    # ------------------------------------------------------------------
+
+    def _inference_worker(self) -> None:
+        while self._running:
+            frame = self._infer_queue.get()
+            if frame is None:
+                break
+            if self._backoff > 0:
+                time.sleep(self._backoff)
+            result = self._run_inference(frame)
+            try:
+                self._result_queue.put_nowait(result)
+            except queue.Full:
+                # Replace stale result with latest
+                try:
+                    self._result_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                self._result_queue.put_nowait(result)
+
+    # ------------------------------------------------------------------
+    # Inference
     # ------------------------------------------------------------------
 
     def _run_inference(self, frame_bgr: np.ndarray) -> FrameResult:
@@ -103,12 +156,13 @@ class FrameProcessor:
             )
             response.raise_for_status()
             data = response.json()
-        except Exception as exc:
-            print(f"[FrameProcessor] inference error: {exc}")
+        except (httpx.HTTPError, OSError) as exc:
+            self._backoff = min(max(self._backoff * 2, 1.0), 30.0)
+            print(f"[FrameProcessor] inference error (backoff={self._backoff:.1f}s): {exc}")
             return FrameResult(overlay_frame=frame_bgr.copy())
 
+        self._backoff = 0.0  # reset on success
         latency_ms = (time.monotonic() - t0) * 1000
-
         overlay_frame = self._decode_overlay(data["overlay_b64"], frame_bgr)
 
         result = FrameResult(
@@ -123,7 +177,6 @@ class FrameProcessor:
         return result
 
     def _decode_overlay(self, overlay_b64: str, fallback: np.ndarray) -> np.ndarray:
-        """Decode base64 overlay PNG and resize to match the original frame."""
         try:
             raw = base64.b64decode(overlay_b64)
             arr = np.frombuffer(raw, dtype=np.uint8)
@@ -131,25 +184,15 @@ class FrameProcessor:
             if img is not None:
                 h, w = fallback.shape[:2]
                 return cv2.resize(img, (w, h))
-        except Exception:
+        except (ValueError, cv2.error):
             pass
         return fallback.copy()
 
-    def _blend_cached_overlay(self, frame_bgr: np.ndarray, cached: FrameResult) -> np.ndarray:
-        """On non-inference frames, decode and resize the cached overlay onto the new frame."""
-        # cached.overlay_frame is already the full overlay — just resize to current frame dims
-        h, w = frame_bgr.shape[:2]
-        resized = cv2.resize(cached.overlay_frame, (w, h))
-        return resized
-
     def _draw_hud(self, result: FrameResult) -> None:
-        """Draw score, status and latency text onto result.overlay_frame in-place."""
         frame = result.overlay_frame
-        h, w = frame.shape[:2]
-
+        h = frame.shape[0]
         colour = (0, 0, 255) if result.is_anomaly else (0, 200, 0)
         label = "ANOMALY" if result.is_anomaly else "NORMAL"
-
         cv2.putText(frame, f"{label}  {result.anomaly_score:.3f}",
                     (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, colour, 2)
         cv2.putText(frame, f"latency: {result.latency_ms:.0f}ms",

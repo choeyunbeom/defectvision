@@ -34,6 +34,7 @@ def _fake_predictor() -> MagicMock:
     pred.threshold = 0.5
     pred.predict.return_value = {
         "anomaly_score": 0.2,
+        "raw_score": 0.2,
         "is_anomaly": False,
         "threshold": 0.5,
         "anomaly_map": np.zeros((h, w), dtype=np.float32),
@@ -101,6 +102,43 @@ def test_predict_response_schema(client):
     required = {"anomaly_score", "is_anomaly", "threshold", "heatmap_b64", "overlay_b64",
                 "model_category", "runtime"}
     assert required.issubset(body.keys())
+
+
+# ── Calibrate endpoint ────────────────────────────────────────────────────────
+
+def test_calibrate_sets_new_threshold(client):
+    """Calibrate with two normal images — threshold should update."""
+    img = _png_bytes()
+    files = [
+        ("files", ("img1.png", img, "image/png")),
+        ("files", ("img2.png", img, "image/png")),
+    ]
+    resp = client.post("/calibrate", files=files)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "new_threshold" in body
+    assert body["n_images"] == 2
+    assert body["new_threshold"] >= 0.0
+    assert "mean_score" in body
+    assert "std_score" in body
+
+
+def test_calibrate_empty_files_returns_422(client):
+    """Calling /calibrate with no files should return 422."""
+    resp = client.post("/calibrate", files=[])
+    assert resp.status_code == 422
+
+
+def test_calibrate_custom_k(client):
+    """k parameter controls threshold sensitivity."""
+    img = _png_bytes()
+    files = [("files", ("img.png", img, "image/png"))]
+    resp_k1 = client.post("/calibrate?k=1.0", files=files)
+    resp_k5 = client.post("/calibrate?k=5.0", files=files)
+    assert resp_k1.status_code == 200
+    assert resp_k5.status_code == 200
+    # Higher k → higher threshold
+    assert resp_k5.json()["new_threshold"] >= resp_k1.json()["new_threshold"]
 
 
 # ── Model loading (skipped in CI) ─────────────────────────────────────────────

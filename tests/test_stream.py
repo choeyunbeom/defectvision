@@ -1,9 +1,11 @@
 """Tests for the stream processing pipeline."""
 
 import base64
+import time
 from unittest.mock import MagicMock, patch
 
 import cv2
+import httpx
 import numpy as np
 import pytest
 
@@ -33,6 +35,16 @@ def _mock_response(score: float = 0.3, is_anomaly: bool = False) -> MagicMock:
     return resp
 
 
+def _wait_for_prediction(proc: FrameProcessor, frame: np.ndarray, timeout: float = 2.0) -> FrameResult:
+    """Poll process() until has_prediction is True or timeout."""
+    deadline = time.monotonic() + timeout
+    result = proc.process(frame)
+    while not result.has_prediction and time.monotonic() < deadline:
+        time.sleep(0.02)
+        result = proc.process(frame)
+    return result
+
+
 # ── FrameProcessor ────────────────────────────────────────────────────────────
 
 def test_frame_result_has_overlay():
@@ -40,7 +52,7 @@ def test_frame_result_has_overlay():
     with patch("src.stream.processor.httpx.Client") as MockClient:
         MockClient.return_value.post.return_value = _mock_response(0.2, False)
         proc = FrameProcessor(inference_every=1)
-        result = proc.process(frame)
+        result = _wait_for_prediction(proc, frame)
         proc.close()
 
     assert isinstance(result, FrameResult)
@@ -55,14 +67,13 @@ def test_non_inference_frame_reuses_cache():
         MockClient.return_value.post.return_value = _mock_response(0.8, True)
         proc = FrameProcessor(inference_every=3)
 
-        # Frame 1 triggers inference (count=1, 1%3 != 0 — no, first call at count=3)
-        # Frame 3 triggers inference
         proc.process(frame)  # count=1, no inference
         proc.process(frame)  # count=2, no inference
-        r3 = proc.process(frame)  # count=3, inference called
+        proc.process(frame)  # count=3, inference enqueued
+        r3 = _wait_for_prediction(proc, frame)
         proc.close()
 
-    assert MockClient.return_value.post.call_count == 1
+    assert MockClient.return_value.post.call_count >= 1
     assert r3.has_prediction is True
     assert r3.anomaly_score == pytest.approx(0.8)
 
@@ -81,7 +92,7 @@ def test_no_result_before_first_inference():
 def test_api_error_returns_original_frame():
     frame = _bgr_frame()
     with patch("src.stream.processor.httpx.Client") as MockClient:
-        MockClient.return_value.post.side_effect = Exception("connection refused")
+        MockClient.return_value.post.side_effect = httpx.ConnectError("connection refused")
         proc = FrameProcessor(inference_every=1)
         result = proc.process(frame)
         proc.close()
@@ -95,7 +106,7 @@ def test_anomaly_score_and_label():
     with patch("src.stream.processor.httpx.Client") as MockClient:
         MockClient.return_value.post.return_value = _mock_response(0.9, True)
         proc = FrameProcessor(inference_every=1)
-        result = proc.process(frame)
+        result = _wait_for_prediction(proc, frame)
         proc.close()
 
     assert result.is_anomaly is True

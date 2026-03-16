@@ -34,3 +34,18 @@ class HealthResponse(BaseModel):
     model_category: str
     runtime: Literal["pytorch", "openvino"]
     image_size: int
+
+
+class CalibrateResponse(BaseModel):
+    new_threshold: float = Field(
+        description="Newly calculated threshold based on the supplied normal images."
+    )
+    mean_score: float = Field(
+        description="Mean raw anomaly score across the supplied normal images."
+    )
+    std_score: float = Field(
+        description="Standard deviation of raw anomaly scores."
+    )
+    n_images: int = Field(
+        description="Number of images used for calibration."
+    )
