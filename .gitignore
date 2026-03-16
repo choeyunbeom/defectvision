@@ -19,8 +19,8 @@ models/
 *.pt
 *.pth
 *.onnx
-*.xml
-*.bin
+results/**/*.xml
+results/**/*.bin
 
 # Anomalib results
 results/

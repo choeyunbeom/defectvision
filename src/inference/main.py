@@ -1,8 +1,9 @@
 """FastAPI inference server for PatchCore anomaly detection.
 
 Endpoints:
-  POST /predict   — accepts an image file, returns anomaly score + heatmap
-  GET  /health    — liveness check
+  POST /predict    — accepts an image file, returns anomaly score + heatmap
+  POST /calibrate  — accepts N normal images, recalculates threshold in-place
+  GET  /health     — liveness check
 
 Model is loaded once at startup via the lifespan pattern and shared across requests.
 
@@ -26,7 +27,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.inference.model import PatchCorePredictor
-from src.inference.schemas import HealthResponse, PredictResponse
+from src.inference.schemas import CalibrateResponse, HealthResponse, PredictResponse
 
 
 class Settings(BaseSettings):
@@ -98,7 +99,15 @@ async def predict(file: Annotated[UploadFile, File(description="Image file (JPEG
     if _predictor is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
 
+    # Reject oversized uploads before reading the full body.
+    # file.size is set by python-multipart from the Content-Length header.
+    if file.size is not None and file.size > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 10 MB.")
+
     contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 10 MB.")
+
     img_array = np.frombuffer(contents, dtype=np.uint8)
     image_bgr = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
@@ -115,6 +124,50 @@ async def predict(file: Annotated[UploadFile, File(description="Image file (JPEG
         overlay_b64=result["overlay_b64"],
         model_category=_predictor.category,
         runtime=_predictor.runtime,
+    )
+
+
+@app.post("/calibrate", response_model=CalibrateResponse)
+async def calibrate(
+    files: Annotated[list[UploadFile], File(description="Normal (defect-free) images for threshold calibration")],
+    k: float = 3.0,
+) -> CalibrateResponse:
+    """Recalculate the anomaly threshold from a set of normal images.
+
+    Computes raw anomaly scores for each supplied image, then sets:
+        threshold = mean(scores) + k * std(scores)
+
+    A higher ``k`` makes the detector less sensitive (fewer false positives).
+    Default k=3.0 corresponds to the 3-sigma rule.
+    """
+    if _predictor is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    if not files:
+        raise HTTPException(status_code=422, detail="At least one image is required.")
+
+    raw_scores: list[float] = []
+    for upload in files:
+        contents = await upload.read()
+        img_array = np.frombuffer(contents, dtype=np.uint8)
+        image_bgr = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        if image_bgr is None:
+            raise HTTPException(status_code=422, detail=f"Could not decode image: {upload.filename}")
+        result = _predictor.predict(image_bgr)
+        raw_scores.append(result["raw_score"])
+
+    scores = np.array(raw_scores, dtype=np.float64)
+    mean_s = float(scores.mean())
+    std_s = float(scores.std())
+    new_threshold = mean_s + k * std_s
+
+    _predictor.threshold = new_threshold
+    print(f"[calibrate] n={len(raw_scores)}, mean={mean_s:.4f}, std={std_s:.4f}, new_threshold={new_threshold:.4f}")
+
+    return CalibrateResponse(
+        new_threshold=new_threshold,
+        mean_score=mean_s,
+        std_score=std_s,
+        n_images=len(raw_scores),
     )
 
 

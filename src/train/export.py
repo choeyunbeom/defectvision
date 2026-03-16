@@ -17,7 +17,6 @@ def export_model(ckpt_path: str, export_root: str) -> Path:
     model.to("cpu")
 
     # Export to ONNX first (bypass anomalib's transform bundling)
-    import torch
     onnx_path = Path(export_root) / "model.onnx"
     dummy_input = torch.randn(1, 3, 256, 256)
     torch.onnx.export(
