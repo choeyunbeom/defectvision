@@ -159,8 +159,8 @@ def main() -> None:
 
     # Print markdown table
     print("\n## Augmentation Experiment Results\n")
-    print(f"| Category | Config | Lighting | Geometry | Image AUROC | Pixel AUROC |")
-    print(f"|----------|--------|----------|----------|------------|-------------|")
+    print("| Category | Config | Lighting | Geometry | Image AUROC | Pixel AUROC |")
+    print("|----------|--------|----------|----------|------------|-------------|")
     for r in all_results:
         light = "yes" if r["lighting"] else "no"
         geo   = "yes" if r["geometry"] else "no"
