@@ -49,7 +49,9 @@ _predictor: PatchCorePredictor | None = None
 async def lifespan(app: FastAPI):
     global _predictor
     if not Path(settings.model_path).exists():
-        raise RuntimeError(f"Model not found: {settings.model_path}")
+        print(f"WARNING: Model not found: {settings.model_path} — API will return 503")
+        yield
+        return
 
     _predictor = PatchCorePredictor(
         model_path=settings.model_path,
