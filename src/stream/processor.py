@@ -59,6 +59,7 @@ class FrameProcessor:
         self._infer_queue: queue.Queue = queue.Queue(maxsize=1)
         self._result_queue: queue.Queue = queue.Queue(maxsize=1)
         self._running = True
+        self._stop_event = threading.Event()
         self._backoff: float = 0.0  # exponential backoff on API errors
         self._thread = threading.Thread(target=self._inference_worker, daemon=True)
         self._thread.start()
@@ -104,6 +105,7 @@ class FrameProcessor:
 
     def close(self) -> None:
         self._running = False
+        self._stop_event.set()  # wake up any backoff sleep immediately
         try:
             self._infer_queue.put_nowait(None)  # sentinel to unblock worker
         except queue.Full:
@@ -127,7 +129,9 @@ class FrameProcessor:
             if frame is None:
                 break
             if self._backoff > 0:
-                time.sleep(self._backoff)
+                # Wait for backoff duration, but wake immediately on stop signal
+                if self._stop_event.wait(timeout=self._backoff):
+                    break
             result = self._run_inference(frame)
             try:
                 self._result_queue.put_nowait(result)

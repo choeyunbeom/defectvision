@@ -17,6 +17,7 @@ Configuration is read from environment variables (or a .env file):
   PORT            Server bind port                         [default: 8000]
 """
 
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -45,6 +46,30 @@ class Settings(BaseSettings):
 settings = Settings()
 _predictor: PatchCorePredictor | None = None
 
+CALIBRATION_FILE = Path("calibration.json")
+
+
+def _load_calibrated_threshold() -> float | None:
+    """Load persisted threshold from calibration.json if it exists."""
+    if not CALIBRATION_FILE.exists():
+        return None
+    try:
+        data = json.loads(CALIBRATION_FILE.read_text())
+        return float(data["threshold"])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return None
+
+
+def _save_calibrated_threshold(threshold: float, mean_score: float, std_score: float, n_images: int, k: float) -> None:
+    """Persist calibrated threshold to calibration.json."""
+    CALIBRATION_FILE.write_text(json.dumps({
+        "threshold": threshold,
+        "mean_score": mean_score,
+        "std_score": std_score,
+        "n_images": n_images,
+        "k": k,
+    }, indent=2))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -60,8 +85,15 @@ async def lifespan(app: FastAPI):
         image_size=settings.image_size,
         runtime=settings.runtime,
     )
+
+    # Priority: env THRESHOLD > calibration.json > checkpoint default
     if settings.threshold is not None:
         _predictor.threshold = settings.threshold
+    else:
+        saved = _load_calibrated_threshold()
+        if saved is not None:
+            _predictor.threshold = saved
+            print(f"Loaded calibrated threshold: {saved:.4f}")
 
     print(f"Model loaded: category={settings.model_category}, runtime={settings.runtime}")
     yield
@@ -161,6 +193,7 @@ async def calibrate(
     new_threshold = mean_s + k * std_s
 
     _predictor.threshold = new_threshold
+    _save_calibrated_threshold(new_threshold, mean_s, std_s, len(raw_scores), k)
     print(f"[calibrate] n={len(raw_scores)}, mean={mean_s:.4f}, std={std_s:.4f}, new_threshold={new_threshold:.4f}")
 
     return CalibrateResponse(

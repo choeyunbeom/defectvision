@@ -39,3 +39,6 @@ lightning_logs/
 
 # Env
 .env
+
+# Calibration state
+calibration.json
