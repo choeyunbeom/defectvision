@@ -6,9 +6,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from anomalib.data import MVTec
-from anomalib.deploy.export import ExportType
-from anomalib.engine import Engine
 from anomalib.models import Patchcore
 
 
@@ -112,7 +109,7 @@ def main():
     Path(args.export_root).mkdir(parents=True, exist_ok=True)
 
     # Export
-    export_path = export_model(args.ckpt_path, args.export_root)
+    export_model(args.ckpt_path, args.export_root)
 
     # Find the .xml file
     xml_path = list(Path(args.export_root).rglob("*.xml"))
