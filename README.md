@@ -2,9 +2,9 @@
 
 > Real-time manufacturing defect detection using unsupervised anomaly detection.
 
-<!-- TODO: record webcam demo and add assets/demo.gif -->
-<!-- ![demo](assets/demo.gif) -->
-<!-- *Normal bottle → low score. Defective bottle → red heatmap + ANOMALY alert.* -->
+
+![demo](assets/demo.gif)
+*Normal bottle → low score. Defective bottle → red heatmap + ANOMALY alert.*
 
 ---
 
