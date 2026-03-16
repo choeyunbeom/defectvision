@@ -57,8 +57,8 @@ def test_non_inference_frame_reuses_cache():
 
         # Frame 1 triggers inference (count=1, 1%3 != 0 — no, first call at count=3)
         # Frame 3 triggers inference
-        r1 = proc.process(frame)  # count=1, no inference
-        r2 = proc.process(frame)  # count=2, no inference
+        proc.process(frame)  # count=1, no inference
+        proc.process(frame)  # count=2, no inference
         r3 = proc.process(frame)  # count=3, inference called
         proc.close()
 
