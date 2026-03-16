@@ -1,0 +1,41 @@
+# Virtual environment
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Data & models
+data/
+datasets/
+models/
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.xml
+*.bin
+
+# Anomalib results
+results/
+lightning_logs/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# OS
+.DS_Store
+
+# Env
+.env

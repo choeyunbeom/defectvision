@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "defectvision"
+version = "0.1.0"
+description = "Real-time manufacturing defect detection using PatchCore anomaly detection"
+requires-python = ">=3.11"
+
+dependencies = [
+    # Core ML
+    "anomalib[full]==1.2.0",
+
+    # API
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
+
+    # Dashboard
+    "streamlit>=1.35.0",
+    "plotly>=5.22.0",
+
+    # Vision
+    "opencv-python>=4.9.0",
+    "Pillow>=10.3.0",
+
+    # Data / Utils
+    "numpy>=1.26.0,<2.0",   # imgaug incompatible with numpy 2.x
+    "pandas>=2.2.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    "ollama==0.3.3",         # anomalib VlmAd backend requires _encode_image
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",
+    "ruff>=0.4.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
