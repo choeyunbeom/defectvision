@@ -63,6 +63,7 @@ def _load_calibrated_threshold() -> float | None:
 
 def _save_calibrated_threshold(threshold: float, mean_score: float, std_score: float, n_images: int, k: float) -> None:
     """Persist calibrated threshold to calibration.json."""
+    CALIBRATION_FILE.parent.mkdir(parents=True, exist_ok=True)
     CALIBRATION_FILE.write_text(json.dumps({
         "threshold": threshold,
         "mean_score": mean_score,
