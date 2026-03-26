@@ -25,6 +25,7 @@ from typing import Annotated
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.inference.model import PatchCorePredictor
@@ -46,7 +47,7 @@ class Settings(BaseSettings):
 settings = Settings()
 _predictor: PatchCorePredictor | None = None
 
-CALIBRATION_FILE = Path("calibration.json")
+CALIBRATION_FILE = Path("results/calibration.json")
 
 
 def _load_calibrated_threshold() -> float | None:
@@ -146,7 +147,7 @@ async def predict(file: Annotated[UploadFile, File(description="Image file (JPEG
     if image_bgr is None:
         raise HTTPException(status_code=422, detail="Could not decode image. Ensure the file is a valid JPEG or PNG.")
 
-    result = _predictor.predict(image_bgr)
+    result = await run_in_threadpool(_predictor.predict, image_bgr)
 
     return PredictResponse(
         anomaly_score=result["anomaly_score"],
@@ -184,7 +185,7 @@ async def calibrate(
         image_bgr = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
         if image_bgr is None:
             raise HTTPException(status_code=422, detail=f"Could not decode image: {upload.filename}")
-        result = _predictor.predict(image_bgr)
+        result = await run_in_threadpool(_predictor.predict, image_bgr)
         raw_scores.append(result["raw_score"])
 
     scores = np.array(raw_scores, dtype=np.float64)

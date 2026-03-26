@@ -7,7 +7,7 @@ services:
       - "8000:8000"
     volumes:
       # Mount model checkpoints — not baked into the image (large files)
-      - ./results:/app/results:ro
+      - ./results:/app/results
       # Mount HuggingFace cache so backbone weights don't need to be re-downloaded
       - ~/.cache/huggingface:/root/.cache/huggingface:ro
     environment:
